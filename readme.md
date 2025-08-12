@@ -86,7 +86,7 @@ This project aims to fine-tune a pretrained Stable Diffusion model on four disti
 
 ## 📜 License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the MIT License. See the [`LICENSE`](LICENSE) file for details.
 
 ---
 
