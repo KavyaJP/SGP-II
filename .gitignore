@@ -1,0 +1,4 @@
+.vscode/
+.venv/
+lora_captions/
+lora_images/
