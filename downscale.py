@@ -7,7 +7,6 @@ input_folder = "input_images"
 
 # 2. The folder where the new 16x16 images will be saved.
 output_folder = "downscaled_images"
-
 # -------------------
 
 
