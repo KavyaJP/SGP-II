@@ -6,10 +6,8 @@ from PIL import Image
 input_folder = "input_images"
 
 # 2. The folder where the new 16x16 images will be saved.
-output_folder = "output_16x16"
+output_folder = "downscaled_images"
 
-# 3. The target size for your final pixel art images.
-target_size = (16, 16)
 # -------------------
 
 
@@ -29,7 +27,7 @@ def downscale_images(source_folder, destination_folder, size):
     # Loop through each file
     for filename in files:
         # Check if the file is an image
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+        if filename.lower().endswith((".png", ".jpg", ".jpeg", ".bmp")):
             try:
                 # Construct the full file path
                 file_path = os.path.join(source_folder, filename)
@@ -42,14 +40,20 @@ def downscale_images(source_folder, destination_folder, size):
 
                     # Construct the output path
                     output_path = os.path.join(destination_folder, filename)
-                    
+
                     # Save the new, downscaled image
                     resized_image.save(output_path)
-                    print(f"Successfully downscaled '{filename}' to {size[0]}x{size[1]}px.")
+                    print(
+                        f"Successfully downscaled '{filename}' to {size[0]}x{size[1]} px."
+                    )
 
             except Exception as e:
                 print(f"Could not process {filename}. Error: {e}")
 
+
 # --- Run the script ---
 if __name__ == "__main__":
+    x = int(input("Enter Width: "))
+    y = int(input("Enter Height: "))
+    target_size = (x, y)
     downscale_images(input_folder, output_folder, target_size)
