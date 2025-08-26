@@ -1,20 +1,19 @@
 import React, { useState } from 'react';
-import './App.css'; // Import the separated CSS file
+import './App.css';
 
-// --- Helper Components (SVGs) ---
-// These are kept in the JSX file as they are part of the component's structure.
+// --- SVG Icon Components ---
 const GenerateIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="generate-icon">
+  <svg xmlns="http://www.w.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="generate-icon">
     <path d="M12 3c-1.1 0-2 .9-2 2v2h4V5c0-1.1-.9-2-2-2z" />
-    <path d="M18.8 9.2c.5-.5.8-1.2.8-2s-.3-1.5-.8-2l-1.6-1.6c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L12 5.2 10.8 4c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L5.2 5.6c-.5.5-.8 1.2-.8 2s.3 1.5.8 2L4 10.8c-.5.5-.8 1.2-.8 2s.3 1.5.8 2l1.6 1.6c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.2-1.2 1.2 1.2c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.6-1.6c.5-.5.8-1.2.8-2s-.3-1.5-.8-2L18.8 9.2z" />
+    <path d="M18.8 9.2c.5-.5.8-1.2.8-2s-.3-1.5-.8-2l-1.6-1.6c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L12 5.2 10.8 4c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L5.2 5.6c-.5-.5-.8 1.2-.8 2s.3 1.5.8 2L4 10.8c-.5-.5-.8 1.2-.8 2s.3 1.5.8 2l1.6 1.6c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.2-1.2 1.2 1.2c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.6-1.6c.5-.5.8-1.2-.8-2s-.3-1.5-.8-2L18.8 9.2z" />
     <path d="m12 15-1.5 3L12 21l1.5-3L12 15z" />
   </svg>
 );
 
 const ImageIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="placeholder-icon">
+  <svg xmlns="http://www.w.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="placeholder-icon">
     <path d="M12 3c-1.1 0-2 .9-2 2v2h4V5c0-1.1-.9-2-2-2z" />
-    <path d="M18.8 9.2c.5-.5.8-1.2.8-2s-.3-1.5-.8-2l-1.6-1.6c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L12 5.2 10.8 4c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L5.2 5.6c-.5.5-.8 1.2-.8 2s.3 1.5.8 2L4 10.8c-.5.5-.8 1.2-.8 2s.3 1.5.8 2l1.6 1.6c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.2-1.2 1.2 1.2c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.6-1.6c.5-.5.8-1.2.8-2s-.3-1.5-.8-2L18.8 9.2z" />
+    <path d="M18.8 9.2c.5-.5.8-1.2.8-2s-.3-1.5-.8-2l-1.6-1.6c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L12 5.2 10.8 4c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L5.2 5.6c-.5-.5-.8 1.2-.8 2s.3 1.5.8 2L4 10.8c-.5-.5-.8 1.2-.8 2s.3 1.5.8 2l1.6 1.6c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.2-1.2 1.2 1.2c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.6-1.6c-.5-.5.8-1.2-.8-2s-.3-1.5-.8-2L18.8 9.2z" />
     <path d="m12 15-1.5 3L12 21l1.5-3L12 15z" />
   </svg>
 );
@@ -26,7 +25,6 @@ const SpinnerIcon = () => (
   </svg>
 );
 
-
 // --- Main App Component ---
 export default function App() {
   // State for form inputs
@@ -37,16 +35,17 @@ export default function App() {
   // State for image generation
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImages, setGeneratedImages] = useState([]);
+  const [error, setError] = useState(null); // To store any errors from the backend
 
   // Mock checkpoint models
   const checkpointModels = [
-    { id: '1', name: 'PixelArt-V1.0' },
-    { id: '2', name: 'RetroGame-V2.5' },
-    { id: '3', name: 'FantasySprite-V3.1' },
+    { id: 'PixelArt-V1.0', name: 'PixelArt-V1.0' },
+    { id: 'RetroGame-V2.5', name: 'RetroGame-V2.5' },
+    { id: 'FantasySprite-V3.1', name: 'FantasySprite-V3.1' },
   ];
 
   // --- Handlers ---
-  const handleGenerateClick = () => {
+  const handleGenerateClick = async () => {
     if (!prompt || !checkpointModel) {
       console.warn("Prompt and Checkpoint Model are required.");
       return;
@@ -54,18 +53,47 @@ export default function App() {
 
     setIsGenerating(true);
     setGeneratedImages([]);
+    setError(null);
 
-    // Simulate an API call to generate images
-    setTimeout(() => {
-      const newImages = [
-        { id: 1, url: 'https://placehold.co/512x512/2d3748/ffffff?text=Pixel+Knight+1' },
-        { id: 2, url: 'https://placehold.co/512x512/2d3748/ffffff?text=Pixel+Knight+2' },
-        { id: 3, url: 'https://placehold.co/512x512/2d3748/ffffff?text=Pixel+Knight+3' },
-        { id: 4, url: 'https://placehold.co/512x512/2d3748/ffffff?text=Pixel+Knight+4' },
-      ];
-      setGeneratedImages(newImages);
+    try {
+      // The API endpoint of your Flask server
+      const API_URL = 'http://127.0.0.1:5000/generate';
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+          negativePrompt: negativePrompt,
+          checkpointModel: checkpointModel,
+        }),
+      });
+
+      if (!response.ok) {
+        // Handle HTTP errors like 400 or 500
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // The backend returns an array of base64 image strings.
+      // We'll map them to an object format the frontend can use.
+      const formattedImages = data.images.map((imgStr, index) => ({
+        id: index,
+        url: imgStr
+      }));
+
+      setGeneratedImages(formattedImages);
+
+    } catch (e) {
+      console.error("Failed to generate image:", e);
+      setError(e.message);
+    } finally {
       setIsGenerating(false);
-    }, 2500); // Simulate a 2.5 second generation time
+    }
   };
 
   // --- Render ---
@@ -152,6 +180,11 @@ export default function App() {
                   <SpinnerIcon />
                   <p>Generating your masterpiece...</p>
                 </div>
+              ) : error ? (
+                <div className="placeholder-state" style={{ color: '#ef4444' }}>
+                  <h3>Generation Failed</h3>
+                  <p>{error}</p>
+                </div>
               ) : generatedImages.length > 0 ? (
                 <div className="image-grid">
                   {generatedImages.map(image => (
@@ -160,7 +193,6 @@ export default function App() {
                         src={image.url}
                         alt={`Generated pixel art ${image.id}`}
                         className="generated-image"
-                        onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/512x512/ef4444/ffffff?text=Error'; }}
                       />
                     </div>
                   ))}
