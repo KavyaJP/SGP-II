@@ -6,3 +6,5 @@ diffusers
 transformers
 accelerate
 safetensors
+peft
+xformers

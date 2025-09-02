@@ -1,44 +1,45 @@
 import os
 import io
-import base64
+import time
+import logging
 import torch
+import base64
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 from diffusers import StableDiffusionPipeline
+import peft
 
-# --- 1. CONFIGURATION & SETUP ---
-
-# Define paths to the specific model subdirectories
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
-CHECKPOINTS_DIR = os.path.join(MODELS_DIR, "checkpoint")
-LORAS_DIR = os.path.join(MODELS_DIR, "lora")
-print(f"--- Checkpoints directory: {CHECKPOINTS_DIR} ---")
-print(f"--- LoRAs directory: {LORAS_DIR} ---")
-
-# Ensure directories exist
-for path in [CHECKPOINTS_DIR, LORAS_DIR]:
-    if not os.path.exists(path):
-        os.makedirs(path)
-        print(f"--- Created directory: {path} ---")
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"--- Using device: {DEVICE} ---")
-
-# --- NEW: Pipeline Cache ---
-# This dictionary will hold loaded checkpoint models to avoid reloading them on every request.
-# Key: checkpoint filename, Value: loaded pipeline object
-loaded_pipelines = {}
-
-
-# --- 2. FLASK APP INITIALIZATION ---
+# --- 1. SETUP ---
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
+logging.basicConfig(level=logging.INFO)
+
+# --- NEW: Define Output Paths at the project root ---
+ROOT_DIR = os.path.join(os.path.dirname(__file__), "..")
+OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
+DOWNSCALED_DIR = os.path.join(OUTPUT_DIR, "downscaled")
+
+# Define model paths
+MODELS_DIR = os.path.join(ROOT_DIR, "models")
+CHECKPOINTS_DIR = os.path.join(MODELS_DIR, "checkpoint")
+LORAS_DIR = os.path.join(MODELS_DIR, "lora")
+
+# Ensure all directories exist
+for path in [CHECKPOINTS_DIR, LORAS_DIR, OUTPUT_DIR, DOWNSCALED_DIR]:
+    if not os.path.exists(path):
+        os.makedirs(path)
+        logging.info(f"--- Created directory: {path}")
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+logging.info(f"--- Using device: {DEVICE} ---")
+
+# Cache for loaded pipelines
+MODEL_CACHE = {}
 
 
-# --- 3. UTILITY FUNCTIONS ---
+# --- 2. UTILITY & API ENDPOINTS (No changes here) ---
 def get_model_files(directory):
-    """Scans a directory for model files."""
     allowed_extensions = {".safetensors", ".ckpt", ".bin", ".pt"}
     try:
         files = os.listdir(directory)
@@ -48,108 +49,94 @@ def get_model_files(directory):
             if any(f.lower().endswith(ext) for ext in allowed_extensions)
         ]
     except FileNotFoundError:
-        return []  # Return empty list if the directory doesn't exist yet
-
-
-# --- 4. API ENDPOINTS ---
+        return []
 
 
 @app.route("/api/checkpoints", methods=["GET"])
 def get_checkpoints():
-    """Returns a list of available checkpoint model filenames."""
     checkpoints = get_model_files(CHECKPOINTS_DIR)
-    print(f"--- Found checkpoints: {checkpoints} ---")
     return jsonify({"models": checkpoints})
 
 
 @app.route("/api/loras", methods=["GET"])
 def get_loras():
-    """Returns a list of available LoRA model filenames."""
     loras = get_model_files(LORAS_DIR)
-    print(f"--- Found LoRAs: {loras} ---")
     return jsonify({"models": loras})
 
 
+# --- 3. GENERATION LOGIC ---
 @app.route("/api/generate", methods=["POST"])
 def generate():
-    """
-    Handles image generation. Loads a checkpoint and optionally applies a LoRA.
-    """
+    start_time = time.time()
     data = request.get_json()
+
     prompt = data.get("prompt")
     negative_prompt = data.get("negativePrompt")
     checkpoint_file = data.get("checkpointModel")
-    lora_file = data.get("loraModel")  # Can be None or empty
+    lora_file = data.get("loraModel")
 
     if not prompt or not checkpoint_file:
-        return jsonify({"error": "Prompt and Checkpoint Model are required."}), 400
+        return jsonify({"error": "Prompt and Checkpoint are required."}), 400
 
+    pipe = None
     try:
-        # --- DYNAMIC PIPELINE LOADING ---
-        pipe = None
-        if checkpoint_file in loaded_pipelines:
-            print(f"--- Using cached pipeline for: {checkpoint_file} ---")
-            pipe = loaded_pipelines[checkpoint_file]
+        # Load pipeline from cache or disk
+        if checkpoint_file in MODEL_CACHE:
+            pipe = MODEL_CACHE[checkpoint_file]
         else:
-            print(f"--- Loading new pipeline for: {checkpoint_file} ---")
             checkpoint_path = os.path.join(CHECKPOINTS_DIR, checkpoint_file)
-            if not os.path.exists(checkpoint_path):
-                return (
-                    jsonify({"error": f"Checkpoint file not found: {checkpoint_file}"}),
-                    404,
-                )
-
-            pipe = StableDiffusionPipeline.from_pretrained(
-                checkpoint_path,
-                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                local_files_only=True,  # Assumes model is fully downloaded
+            pipe = StableDiffusionPipeline.from_single_file(
+                checkpoint_path, torch_dtype=torch.float32, safety_checker=None
             )
-            pipe = pipe.to(DEVICE)
-            loaded_pipelines[checkpoint_file] = pipe  # Cache the loaded pipeline
-            print(f"--- Pipeline for {checkpoint_file} loaded and cached. ---")
+            pipe.to(DEVICE)
+            MODEL_CACHE[checkpoint_file] = pipe
 
-        # --- APPLY LORA (if selected) ---
-        if lora_file:
+        # Apply LoRA if selected
+        if lora_file and lora_file != "":
             lora_path = os.path.join(LORAS_DIR, lora_file)
-            if not os.path.exists(lora_path):
-                return jsonify({"error": f"LoRA file not found: {lora_file}"}), 404
-            print(f"--- Applying LoRA: {lora_file} ---")
             pipe.load_lora_weights(lora_path)
 
-        # --- IMAGE GENERATION ---
+        # Generate the 512x512 image
+        logging.info("--- Generating 512x512 image... ---")
         image = pipe(
-            prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=30,
-            guidance_scale=7.5,
+            prompt, negative_prompt=negative_prompt, num_inference_steps=25
         ).images[0]
-        print("--- Image generated successfully. ---")
+        logging.info("--- Image generated successfully. ---")
+
+        # --- NEW: SAVE THE IMAGES ---
+        timestamp = int(time.time())
+        filename = f"{timestamp}_{prompt[:20].replace(' ', '_')}.png"
+
+        full_size_path = os.path.join(OUTPUT_DIR, filename)
+        image.save(full_size_path)
+        logging.info(f"--- Saved full-size image to: {full_size_path} ---")
+
+        pixel_art_img = image.resize((16, 16), Image.Resampling.NEAREST)
+        downscaled_path = os.path.join(DOWNSCALED_DIR, filename)
+        pixel_art_img.save(downscaled_path)
+        logging.info(f"--- Saved downscaled image to: {downscaled_path} ---")
+
+        # --- FIX: Convert image to Base64 and send in JSON ---
+        buffered = io.BytesIO()
+        pixel_art_img.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+        end_time = time.time()
+        logging.info(
+            f"--- Total generation time: {end_time - start_time:.2f} seconds ---"
+        )
+
+        return jsonify({"images": [f"data:image/png;base64,{img_str}"]})
 
     except Exception as e:
-        print(f"An error occurred during image generation: {e}")
-        return (
-            jsonify(
-                {"error": f"Generation failed. Check backend logs for details: {e}"}
-            ),
-            500,
-        )
+        logging.error(f"!!! An error occurred during generation: {e}")
+        return jsonify({"error": str(e)}), 500
+
     finally:
-        # --- UNLOAD LORA ---
-        # Unload LoRA weights to ensure the base checkpoint is clean for the next request.
-        if lora_file and "pipe" in locals() and pipe is not None:
+        if lora_file and lora_file != "" and pipe is not None:
             pipe.unload_lora_weights()
-            print(f"--- Unloaded LoRA: {lora_file} ---")
-
-    # --- DOWNSCALING & RESPONSE ---
-    pixel_art_img = image.resize((16, 16), Image.Resampling.NEAREST)
-    buffered = io.BytesIO()
-    pixel_art_img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-    print("--- Request Complete ---")
-    return jsonify({"images": [f"data:image/png;base64,{img_str}"]})
 
 
-# --- 5. RUN THE SERVER ---
+# --- 4. RUN THE SERVER ---
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)
