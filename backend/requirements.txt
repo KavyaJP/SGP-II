@@ -1,3 +1,8 @@
 Flask
 Flask-Cors
 Pillow
+torch
+diffusers
+transformers
+accelerate
+safetensors
