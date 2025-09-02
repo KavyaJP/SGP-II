@@ -1,7 +1,7 @@
 // src/App.jsx
 
 import React, { useState, useEffect } from 'react';
-import './App.css';
+import './App.css'; // Make sure this file exists in src/
 
 // --- SVG Icon Components (No changes here) ---
 const GenerateIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="generate-icon"><path d="M12 3c-1.1 0-2 .9-2 2v2h4V5c0-1.1-.9-2-2-2z" /><path d="M18.8 9.2c.5-.5.8-1.2.8-2s-.3-1.5-.8-2l-1.6-1.6c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L12 5.2 10.8 4c-.5-.5-1.2-.8-2-.8s-1.5.3-2 .8L5.2 5.6c-.5-.5-.8 1.2-.8 2s.3 1.5.8 2L4 10.8c-.5-.5-.8 1.2-.8 2s.3 1.5.8 2l1.6 1.6c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.2-1.2 1.2 1.2c.5.5 1.2.8 2 .8s1.5-.3 2-.8l1.6-1.6c.5-.5.8-1.2-.8-2s-.3-1.5-.8-2L18.8 9.2z" /><path d="m12 15-1.5 3L12 21l1.5-3L12 15z" /></svg>);
@@ -27,7 +27,7 @@ export default function App() {
   const [prompt, setPrompt] = useState('A pixelated knight with sword, 16-bit style');
   const [negativePrompt, setNegativePrompt] = useState('blurry, low quality, modern, realistic');
   const [checkpointModel, setCheckpointModel] = useState('');
-  const [loraModel, setLoraModel] = useState(''); // NEW: state for LoRA model
+  const [loraModel, setLoraModel] = useState('');
 
   // State for image generation
   const [isGenerating, setIsGenerating] = useState(false);
@@ -36,7 +36,7 @@ export default function App() {
 
   // State for the lists of models
   const [availableCheckpoints, setAvailableCheckpoints] = useState([]);
-  const [availableLoras, setAvailableLoras] = useState([]); // NEW: state for LoRAs
+  const [availableLoras, setAvailableLoras] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState(null);
 
@@ -65,15 +65,19 @@ export default function App() {
       const response = await fetch('http://127.0.0.1:5000/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, negativePrompt, checkpointModel, loraModel }), // Send both models
+        body: JSON.stringify({ prompt, negativePrompt, checkpointModel, loraModel }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
-      setGeneratedImages(data.images.map((url, id) => ({ id, url })));
+
+      // --- THIS IS THE FIX ---
+      // Instead of response.json(), we now read the image data as a blob
+      const imageBlob = await response.blob();
+      const imageUrl = URL.createObjectURL(imageBlob);
+      setGeneratedImages([{ id: 0, url: imageUrl }]);
 
     } catch (e) {
       console.error("Failed to generate image:", e);
@@ -108,7 +112,7 @@ export default function App() {
               </select>
             </div>
 
-            {/* NEW: LoRA Dropdown */}
+            {/* LoRA Dropdown */}
             <div className="form-group">
               <label htmlFor="lora-model" className="form-label">LoRA Model (Optional)</label>
               <select id="lora-model" className="form-select" value={loraModel} onChange={(e) => setLoraModel(e.target.value)} disabled={modelsLoading}>
@@ -129,4 +133,3 @@ export default function App() {
     </div>
   );
 }
-
