@@ -1,3 +1,4 @@
+import os
 import io
 import base64
 import torch
@@ -6,118 +7,141 @@ from flask_cors import CORS
 from PIL import Image
 from diffusers import StableDiffusionPipeline
 
-# --- 1. AI MODEL SETUP (This runs only once when the server starts) ---
+# --- 1. CONFIGURATION & SETUP ---
 
-# Define the base model from Hugging Face. v1.5 is a reliable choice.
-# This model will be downloaded the first time you run the server.
-BASE_MODEL_ID = "runwayml/stable-diffusion-v1-5"
+# Define paths to the specific model subdirectories
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+CHECKPOINTS_DIR = os.path.join(MODELS_DIR, "checkpoint")
+LORAS_DIR = os.path.join(MODELS_DIR, "lora")
+print(f"--- Checkpoints directory: {CHECKPOINTS_DIR} ---")
+print(f"--- LoRAs directory: {LORAS_DIR} ---")
 
-# Check if a CUDA-enabled GPU is available and set the device
+# Ensure directories exist
+for path in [CHECKPOINTS_DIR, LORAS_DIR]:
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print(f"--- Created directory: {path} ---")
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"--- Using device: {DEVICE} ---")
 
-# Load the base Stable Diffusion pipeline
-# This pipeline will be kept in memory to avoid reloading on every request
-print(f"--- Loading base model '{BASE_MODEL_ID}'... This may take a while. ---")
-pipe = StableDiffusionPipeline.from_pretrained(
-    BASE_MODEL_ID, torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
-)
-pipe = pipe.to(DEVICE)
-print("--- Base model loaded successfully. ---")
+# --- NEW: Pipeline Cache ---
+# This dictionary will hold loaded checkpoint models to avoid reloading them on every request.
+# Key: checkpoint filename, Value: loaded pipeline object
+loaded_pipelines = {}
 
 
 # --- 2. FLASK APP INITIALIZATION ---
 app = Flask(__name__)
-CORS(app, resources={r"/generate": {"origins": "http://localhost:5173"}})
+CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
 
 
-# --- 3. IMAGE GENERATION & PROCESSING ---
-def generate_initial_image(prompt, negative_prompt, lora_path):
-    """
-    This function now generates a REAL image using the pre-loaded pipeline
-    and applies your LoRA model.
-    """
+# --- 3. UTILITY FUNCTIONS ---
+def get_model_files(directory):
+    """Scans a directory for model files."""
+    allowed_extensions = {".safetensors", ".ckpt", ".bin", ".pt"}
     try:
-        print("--- Generating 512x512 Image ---")
-        print(f"Prompt: {prompt}")
-        print(f"Applying LoRA: {lora_path}")
+        files = os.listdir(directory)
+        return [
+            f
+            for f in files
+            if any(f.lower().endswith(ext) for ext in allowed_extensions)
+        ]
+    except FileNotFoundError:
+        return []  # Return empty list if the directory doesn't exist yet
 
-        # Load the LoRA weights onto the base model.
-        # The `lora_path` comes from the frontend selection.
-        pipe.load_lora_weights(lora_path)
 
-        # Generate the image. This is the main inference step.
-        # You can adjust parameters like `num_inference_steps` and `guidance_scale`.
+# --- 4. API ENDPOINTS ---
+
+
+@app.route("/api/checkpoints", methods=["GET"])
+def get_checkpoints():
+    """Returns a list of available checkpoint model filenames."""
+    checkpoints = get_model_files(CHECKPOINTS_DIR)
+    print(f"--- Found checkpoints: {checkpoints} ---")
+    return jsonify({"models": checkpoints})
+
+
+@app.route("/api/loras", methods=["GET"])
+def get_loras():
+    """Returns a list of available LoRA model filenames."""
+    loras = get_model_files(LORAS_DIR)
+    print(f"--- Found LoRAs: {loras} ---")
+    return jsonify({"models": loras})
+
+
+@app.route("/api/generate", methods=["POST"])
+def generate():
+    """
+    Handles image generation. Loads a checkpoint and optionally applies a LoRA.
+    """
+    data = request.get_json()
+    prompt = data.get("prompt")
+    negative_prompt = data.get("negativePrompt")
+    checkpoint_file = data.get("checkpointModel")
+    lora_file = data.get("loraModel")  # Can be None or empty
+
+    if not prompt or not checkpoint_file:
+        return jsonify({"error": "Prompt and Checkpoint Model are required."}), 400
+
+    try:
+        # --- DYNAMIC PIPELINE LOADING ---
+        pipe = None
+        if checkpoint_file in loaded_pipelines:
+            print(f"--- Using cached pipeline for: {checkpoint_file} ---")
+            pipe = loaded_pipelines[checkpoint_file]
+        else:
+            print(f"--- Loading new pipeline for: {checkpoint_file} ---")
+            checkpoint_path = os.path.join(CHECKPOINTS_DIR, checkpoint_file)
+            if not os.path.exists(checkpoint_path):
+                return (
+                    jsonify({"error": f"Checkpoint file not found: {checkpoint_file}"}),
+                    404,
+                )
+
+            pipe = StableDiffusionPipeline.from_pretrained(
+                checkpoint_path,
+                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                local_files_only=True,  # Assumes model is fully downloaded
+            )
+            pipe = pipe.to(DEVICE)
+            loaded_pipelines[checkpoint_file] = pipe  # Cache the loaded pipeline
+            print(f"--- Pipeline for {checkpoint_file} loaded and cached. ---")
+
+        # --- APPLY LORA (if selected) ---
+        if lora_file:
+            lora_path = os.path.join(LORAS_DIR, lora_file)
+            if not os.path.exists(lora_path):
+                return jsonify({"error": f"LoRA file not found: {lora_file}"}), 404
+            print(f"--- Applying LoRA: {lora_file} ---")
+            pipe.load_lora_weights(lora_path)
+
+        # --- IMAGE GENERATION ---
         image = pipe(
             prompt,
             negative_prompt=negative_prompt,
             num_inference_steps=30,
             guidance_scale=7.5,
-        ).images[
-            0
-        ]  # .images[0] gets the PIL Image
-
+        ).images[0]
         print("--- Image generated successfully. ---")
-
-        # Unload the LoRA weights so the next request starts fresh
-        pipe.unload_lora_weights()
-
-        return image
 
     except Exception as e:
         print(f"An error occurred during image generation: {e}")
-        # Unload weights in case of an error to be safe
-        pipe.unload_lora_weights()
-        return None
-
-
-def downscale_image(img, size=(16, 16)):
-    """
-    Downscales a single PIL Image object to a target size
-    using Nearest Neighbor resampling. (No changes needed here)
-    """
-    try:
-        resized_image = img.resize(size, Image.Resampling.NEAREST)
-        print(f"Successfully downscaled image to {size[0]}x{size[1]}px.")
-        return resized_image
-    except Exception as e:
-        print(f"Could not downscale image. Error: {e}")
-        return None
-
-
-# --- 4. API ENDPOINT (Minor changes) ---
-
-
-@app.route("/generate", methods=["POST"])
-def generate():
-    """
-    The main API endpoint. Receives data, calls the generation and downscaling functions.
-    """
-    data = request.get_json()
-    prompt = data.get("prompt")
-    negative_prompt = data.get("negativePrompt")
-
-    # This now represents the FILENAME of your LoRA model
-    lora_model_file = data.get("checkpointModel")
-
-    if not prompt or not lora_model_file:
-        return jsonify({"error": "Prompt and Checkpoint Model are required."}), 400
-
-    # Construct the full path to the LoRA file
-    # We assume a 'loras' folder exists inside the 'backend' directory.
-    full_lora_path = f"./loras/{lora_model_file}"
-
-    initial_img = generate_initial_image(prompt, negative_prompt, full_lora_path)
-    if initial_img is None:
         return (
-            jsonify({"error": "Failed to generate initial image. Check backend logs."}),
+            jsonify(
+                {"error": f"Generation failed. Check backend logs for details: {e}"}
+            ),
             500,
         )
+    finally:
+        # --- UNLOAD LORA ---
+        # Unload LoRA weights to ensure the base checkpoint is clean for the next request.
+        if lora_file and "pipe" in locals() and pipe is not None:
+            pipe.unload_lora_weights()
+            print(f"--- Unloaded LoRA: {lora_file} ---")
 
-    pixel_art_img = downscale_image(initial_img)
-    if pixel_art_img is None:
-        return jsonify({"error": "Failed to downscale image."}), 500
-
+    # --- DOWNSCALING & RESPONSE ---
+    pixel_art_img = image.resize((16, 16), Image.Resampling.NEAREST)
     buffered = io.BytesIO()
     pixel_art_img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
